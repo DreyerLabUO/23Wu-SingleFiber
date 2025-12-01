@@ -2,16 +2,11 @@
 SF_analysis_pipeline.py
 
 Pipeline for single-fiber myonuclei analysis:
-- Fiji macro produces SDTIP, Skel, and Z-stack images in folders:
-  [Subject]/[Timepoint]/[Leg]/SDTIP|Skel|TIFs
+- Fiji macro produces STDIP, Skel, and Z-stack images in folders:
+  [Subject]/[Timepoint]/[Leg]/STDIP|Skel|TIFs
 - This script segments nuclei, computes morphometrics, orientation vs. skeleton,
   assigns Z positions, clusters nuclei in 3D, measures fiber diameter along the skeleton,
   computes nucleus-to-skeleton distances, and produces biopsy-level summaries merged with Imaris.
-
-UPDATED LOGIC:
-- Nuclei are now filtered by Z-consistency (Standard Deviation of Z-indices).
-- Low Z-SD (planar) = Included (allows Rouleaux).
-- High Z-SD (vertical overlap) = Excluded.
 
 Outputs:
   * Per-fiber CSVs: included nuclei, excluded nuclei (with reasons), fiber width profile
@@ -492,12 +487,12 @@ def compute_fiber_width_profile(nuc_df: pd.DataFrame,
 
     return pd.DataFrame(results)
 
-def save_labeled_overlay(sdtip_mask: np.ndarray,
+def save_labeled_overlay(stdip_mask: np.ndarray,
                          lab_mask: np.ndarray,
                          nuc_df: pd.DataFrame,
                          out_path: str):
-    """Create RGB overlay with SDTIP background, red outlines, and white label IDs."""
-    bg = (sdtip_mask.astype(np.uint8) * 255)
+    """Create RGB overlay with STDIP background, red outlines, and white label IDs."""
+    bg = (stdip_mask.astype(np.uint8) * 255)
     if bg.ndim != 2:
         bg = bg.squeeze()
         if bg.ndim != 2:
@@ -540,12 +535,12 @@ def _gather_files(folder: str, exts=('.tif', '.tiff')) -> List[str]:
                    if f.lower().endswith(exts)])
 
 def _build_fiber_map(leg_dir: str) -> Dict[Tuple[str, str, str, str], Tuple[str, str, str]]:
-    sdtip = _gather_files(os.path.join(leg_dir, 'SDTIP'))
+    stdip = _gather_files(os.path.join(leg_dir, 'STDIP'))
     skel = _gather_files(os.path.join(leg_dir, 'Skel'))
     zstk = _gather_files(os.path.join(leg_dir, 'TIFs'))
 
     maps = {}
-    for group, files in [('SDTIP', sdtip), ('Skel', skel), ('TIFs', zstk)]:
+    for group, files in [('STDIP', stdip), ('Skel', skel), ('TIFs', zstk)]:
         for p in files:
             meta = parse_file_metadata(p)
             if not meta:
@@ -555,7 +550,7 @@ def _build_fiber_map(leg_dir: str) -> Dict[Tuple[str, str, str, str], Tuple[str,
     meta_keys = {meta for (grp, meta) in maps.keys()}
     fiber_map = {}
     for meta in sorted(meta_keys):
-        s_list = maps.get(('SDTIP', meta), [])
+        s_list = maps.get(('STDIP', meta), [])
         k_list = maps.get(('Skel', meta), [])
         z_list = maps.get(('TIFs', meta), [])
         s_choice = s_list[0] if s_list else None
@@ -722,7 +717,7 @@ def summarize_fiber(nuc_df: pd.DataFrame,
 
 # ----------------------------- Process fiber ---------------------------------
 def process_fiber(meta_key: Tuple[str, str, str, str],
-                  sdtip_path: str,
+                  stdip_path: str,
                   skel_path: str,
                   zstack_path: str,
                   out_dir: str,
@@ -736,7 +731,7 @@ def process_fiber(meta_key: Tuple[str, str, str, str],
     _ensure_dir(out_dir)
 
     # Read inputs
-    mask = _to_bool(_imread(sdtip_path))
+    mask = _to_bool(_imread(stdip_path))
     skel = _imread(skel_path)
     zstk = _imread(zstack_path)
 
@@ -890,7 +885,7 @@ def batch_subject(base_dir: str, master_path: str, params: Params):
                 fiber_map = _build_fiber_map(leg_dir)
                 if not fiber_map:
                     all_candidates = (
-                        _gather_files(os.path.join(leg_dir, 'SDTIP')) +
+                        _gather_files(os.path.join(leg_dir, 'STDIP')) +
                         _gather_files(os.path.join(leg_dir, 'Skel')) +
                         _gather_files(os.path.join(leg_dir, 'TIFs'))
                     )
@@ -903,7 +898,7 @@ def batch_subject(base_dir: str, master_path: str, params: Params):
                 biopsy_summaries: List[Dict] = []
                 excluded_fibers: List[Dict] = []
 
-                for meta_key, (sdtip, skel, zstk) in fiber_map.items():
+                for meta_key, (stdip, skel, zstk) in fiber_map.items():
                     m_subject, m_day, m_side, m_fiber_code = meta_key
                     if m_subject != subject or m_day != timepoint or m_side != leg:
                         warnings.warn(f"Metadata mismatch: parsed {meta_key} but folder is {subject}/{timepoint}/{leg}.")
@@ -913,7 +908,7 @@ def batch_subject(base_dir: str, master_path: str, params: Params):
                     out_dir = os.path.join(leg_dir, f"{fiber_tag}_output")
 
                     try:
-                        included_df, excluded_df = process_fiber(meta_key, sdtip, skel, zstk, out_dir, params)
+                        included_df, excluded_df = process_fiber(meta_key, stdip, skel, zstk, out_dir, params)
                         timepoint_to_rows.setdefault(m_day, []).append(included_df.copy())
 
                         # Load width profile if exists
