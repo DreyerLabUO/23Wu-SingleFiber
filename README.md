@@ -36,7 +36,7 @@ The pipeline integrates output from a FIJI/ImageJ segmentation macro with automa
 ├── examples/
 │     ├── example_macro_output/
 │     └── example_results/
-├── manuscript_figures/             # Figures 8-10
+├── visualizations/                 # Manuscript figures 8-10
 └── LICENSE
 ```
 
