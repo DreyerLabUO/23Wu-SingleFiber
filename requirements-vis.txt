@@ -1,0 +1,12 @@
+# Includes all core dependencies
+-r requirements.txt
+
+# Dependencies for manuscript figures
+# Visualization
+matplotlib==3.9.2
+seaborn==0.13.2
+plotly==6.2.0
+
+# Jupyter Environment
+jupyterlab==4.2.5
+notebook==7.2.2

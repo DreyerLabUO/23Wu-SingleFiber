@@ -45,7 +45,7 @@ The pipeline integrates output from a FIJI/ImageJ segmentation macro with automa
 # **Quickstart**
 
 ### **1. Create and activate a Conda environment**
-
+Ensure you have Python 3.10+ installed. It is recommended to use a virtual environment to manage dependencies.
 ```bash
 conda create --name sfpipeline python=3.10
 conda activate sfpipeline
@@ -53,6 +53,7 @@ conda activate sfpipeline
 
 ### **2. Install dependencies**
 
+**Option A: Core Analysis (Lightweight)** If you only need to run the main script.
 ```bash
 pip install -r requirements.txt
 ```
@@ -63,30 +64,42 @@ Or manually:
 python -m pip install numpy pandas scikit-image scikit-learn scipy openpyxl Pillow
 ```
 
+**Option B: Full Development (Analysis + Representative Figures)** If you are interested in also running Jupyter Notebooks or generating figures (as seen in published manuscript), install the full suite.
+```bash
+pip install -r requirements-vis.txt
+```
+
+Or manually:
+
+```
+python -m pip install numpy pandas scikit-image scikit-learn scipy openpyxl Pillow matplotlib seaborn plotly jupyterlab notebook
+```
+
+
 ### **3. Prepare your data directory**
 
 Your macro output should follow:
 
 ```
 <base_dir>/
-    Subject01/
+    20/
         BL/
             L/
                 STDIP/
                 Skel/
                 TIFs/
-        D3/
+        D14/
             R/
                 STDIP/
                 Skel/
                 TIFs/
 ```
 
-Each fiber must have:
+Each fiber (with appropriate naming convention) must have:
 
-* 1 STDIP mask
-* 1 Skel image
-* 1 TIF z-stack
+* 1 STDIP mask (eg. ```STDIP_23_Wu_20_D14_R_02.lif_-_Fiber1-1_Merged.tif```)
+* 1 Skel image (eg. ```Skel_23_Wu_20_D14_R_02.lif_-_Fiber1-1_Merged.tif```)
+* 1 TIF z-stack (eg. ```23_Wu_20_D14_R_02.lif_-_Fiber1-1_Merged.tif```)
 
 ---
 
@@ -129,17 +142,17 @@ For typical imaging setups:
 
 | Parameter                     | Controls               | When to adjust                |
 | ----------------------------- | ---------------------- | ----------------------------- |
-| `--pixel_size_xy_um`          | XY scaling             | Always match your microscope  |
-| `--z_scale_um_per_index`      | Z-step size            | Match acquisition settings    |
-| `--min_area_px`               | Small-object filtering | Remove debris                 |
-| `--max_area_px`               | Large-object filtering | Remove merged nuclei          |
-| `--z_std_threshold`           | Z-consistency filter   | Adjust based on stack quality |
-| `--dbscan_eps_um`             | 3D cluster sensitivity | Depends on nuclear packing    |
-| `--skeleton_radius_px`        | PCA neighborhood       | Curved/broken skeletons       |
-| `--fiber_width_step_um`       | Diameter sampling      | Resolution of width profile   |
-| `--fiber_width_max_radius_um` | Search radius          | Fiber thickness               |
+| [`--pixel_size_xy_um`](./docs/parameter_guide.md#--pixel_size_xy_um)          | XY scaling             | Always match your microscope  |
+| [`--z_scale_um_per_index`](./docs/parameter_guide.md#--z_scale_um_per_index)      | Z-step size            | Match acquisition settings    |
+| [`--min_area_px`](./docs/parameter_guide.md#--min_area_px)               | Small-object filtering | Remove debris                 |
+| [`--max_area_px`](./docs/parameter_guide.md#--max_area_px)               | Large-object filtering | Remove merged nuclei          |
+| [`--z_std_threshold`](./docs/parameter_guide.md#--z_std_threshold)           | Z-consistency filter   | Adjust based on stack quality |
+| [`--dbscan_eps_um`](./docs/parameter_guide.md#--dbscan_eps_um)             | 3D cluster sensitivity | Depends on nuclear packing    |
+| [`--skeleton_radius_px`](./docs/parameter_guide.md#--skeleton_radius_px)        | PCA neighborhood       | Curved/broken skeletons       |
+| [`--fiber_width_step_um`](./docs/parameter_guide.md#--fiber_width_step_um)       | Diameter sampling      | Resolution of width profile   |
+| [`--fiber_width_max_radius_um`](./docs/parameter_guide.md#--fiber_width_max_radius_um) | Search radius          | Fiber thickness               |
 
-Full descriptions appear in **docs/parameter_guide.md**.
+Full descriptions appear in [**docs/parameter_guide.md**](./docs/parameter_guide.md).
 
 ---
 
@@ -172,4 +185,4 @@ If this pipeline contributes to your research, please cite the corresponding Dre
 
 # **Troubleshooting**
 
-See `docs/troubleshooting.md` for the included troubleshooting guide.
+See [`docs/troubleshooting.md`](./docs/troubleshooting.md) for the included troubleshooting guide.

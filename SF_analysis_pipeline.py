@@ -119,16 +119,16 @@ def _find_skeleton_endpoints(skel: np.ndarray) -> List[Tuple[int, int]]:
 # --------------------------- Core computations -------------------------------
 @dataclass
 class Params:
-    pixel_size_xy_um: float = 1.0
-    z_scale_um_per_index: float = 2.7
-    z_std_threshold: float = 2.0
-    dbscan_eps_um: float = 20.0
-    dbscan_min_samples: int = 2
-    skeleton_radius_px: float = 20.0
-    min_area_px: int = 0
-    max_area_px: int = 0
-    fiber_width_step_um: float = 100.0
-    fiber_width_max_radius_um: float = 100.0
+    pixel_size_xy_um: float
+    z_scale_um_per_index: float
+    z_std_threshold: float
+    dbscan_eps_um: float 
+    dbscan_min_samples: int
+    skeleton_radius_px: float 
+    min_area_px: int 
+    max_area_px: int
+    fiber_width_step_um: float
+    fiber_width_max_radius_um: float
 
 def measure_nuclei_from_binary(mask_bin: np.ndarray,
                                params: Params) -> Tuple[pd.DataFrame, np.ndarray]:

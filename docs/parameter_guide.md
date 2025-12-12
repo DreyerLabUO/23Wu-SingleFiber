@@ -155,7 +155,7 @@ If *all* nuclei get excluded → Z-stack likely mislabeled or saturated.
 * If every nucleus forms its own cluster → increase
 * If clusters merge too easily → decrease
 
-### Perform *elbow method* to determine optimal epsilon value for each project.
+### Perform the [**elbow method for DBSCAN**](https://medium.com/@tarammullin/dbscan-parameter-estimation-ff8330e3a3bd) to validate optimal epsilon value for each project.
 
 ---
 
