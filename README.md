@@ -95,7 +95,7 @@ Your macro output should follow:
                 TIFs/
 ```
 
-Each fiber (with appropriate naming convention) must have:
+With appropriate naming convention, each fiber must have:
 
 * 1 STDIP mask (eg. ```STDIP_23_Wu_20_D14_R_02.lif_-_Fiber1-1_Merged.tif```)
 * 1 Skel image (eg. ```Skel_23_Wu_20_D14_R_02.lif_-_Fiber1-1_Merged.tif```)
