@@ -27,7 +27,8 @@ The pipeline integrates output from a FIJI/ImageJ segmentation macro with automa
 ```
 23Wu-SingleFiber/
 │
-├── SF_analysis_pipeline.py         # Main analysis script
+├── SF_analysis_pipeline.py         # Python analysis script
+├── 23_Wu_SF_Analysis.ijm           # ImageJ macro script
 ├── README.md                       # You are here
 ├── requirements.txt                # Python dependencies
 ├── docs/
