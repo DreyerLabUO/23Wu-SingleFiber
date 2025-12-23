@@ -1,24 +1,27 @@
 # **Single-Fiber Myonuclear Analysis Pipeline**
 
-**A reproducible Python framework for quantifying nuclear morphology, spatial organization, microenvironment structure, and fiber geometry in single skeletal muscle fibers.**
+**A reproducible framework for quantifying nuclear morphology, spatial organization, microenvironment structure, and fiber geometry in single skeletal muscle fibers.**
 
 This repository contains the full analysis workflow used in the Dreyer Lab’s single-fiber nuclear organization studies.
-The pipeline integrates output from a FIJI/ImageJ segmentation macro with automated Python-based quantification, and is designed for high-throughput, auditable analysis across subjects and timepoints.
+
+The workflow consists of **two main parts**:
+
+1. **Part I**: Automated 2D image processing using a custom FIJI/ImageJ Macro.
+
+2. **Part II**: Quantitative analysis using a Python Pipeline.
+
+***Note**: Sample data is provided for testing either stage independently. Users wishing to complete a full analysis should run Part I first to generate the necessary inputs for Part II.*
 
 ---
 
 ## **Features**
 
-* Nuclear morphometrics (area, axis lengths, shape classification)
-* Z-position inference & **Z-consistency filtering**
-* Orientation relative to the fiber’s local axis (PCA-based)
-* Distance to fiber skeleton
-* **3D DBSCAN clustering** of nuclei
-* **Nearest-neighbor microenvironment analysis (NN3 & NN5)**
-* Fiber diameter estimation along the length of the fiber
-* Fiber volume + myonuclear domain estimation
-* Automatic per-fiber, per-leg/biopsy, and per-subject summary outputs
-* Fully batch-automated processing across folders
+* **Automated Processing**: Batch conversion of raw confocal stacks into analyzable 2D projections and skeletons.
+* **Nuclear Morphometrics**: Area, axis lengths, shape classification.
+* **Spatial Organization**: Z-position inference, Z-consistency filtering, and 3D DBSCAN clustering.
+* **Microenvironment**: Nearest-neighbor analysis (NN3 & NN5) and myonuclear domain estimation.
+* **Geometry**: Fiber diameter estimation along the length of the fiber.
+* **Reporting**: Automatic per-fiber, per-leg/biopsy, and per-subject summary outputs.
 
 ---
 
@@ -28,31 +31,78 @@ The pipeline integrates output from a FIJI/ImageJ segmentation macro with automa
 23Wu-SingleFiber/
 │
 ├── SF_analysis_pipeline.py         # Python analysis script
-├── 23_Wu_SF_Analysis.ijm           # ImageJ macro script
+├── 23_Wu_SF_Analysis.ijm           # FIJI/ImageJ macro script
 ├── README.md                       # You are here
-├── requirements.txt                # Python dependencies
+├── requirements.txt                # Python dependencies (lightweight)
+├── requirements.txt                # Python dependencies (with figures)
 ├── docs/
 │     ├── troubleshooting.md
 │     └── parameter_guide.md
 ├── examples/
-│     ├── example_macro_output/
+│     ├── example_inputs/           # Example inputs, hosted on Dryad
 │     └── example_results/
 ├── visualizations/                 # Manuscript figures 8-10
 └── LICENSE
 ```
 
 ---
+# **Part I: Automated 2D Image Processing (FIJI Macro)**
 
-# **Quickstart**
+This step processes raw ```.lif``` (Leica) project files into the standardized directory structure required for the Python analysis. An example Leica project is available for download on Dryad. 
 
-### **1. Create and activate a Conda environment**
+### A. **Setup and Execution**
+
+1. **Download Fiji/ImageJ** and enable the Bio-Formats update site.
+
+2. **Import the Macro**: Launch Fiji and open the ```23_Wu_SF_Analysis.ijm``` file from this repository.
+
+3. **Prepare Directories**: Create an *Input* folder containing your project (```.lif```) files and an empty *Output* folder for the processed images.
+
+4. **Run**: Click "Run" on the macro editor window. Select the input and output directories when prompted.
+
+5. **Verify**: Once finished, check the output folder. The macro automatically organizes files into ```STDIP```, ```Skel```, and ```TIFs``` directories.
+
+### B. **File Naming & Regex Adaptations**
+
+The macro uses Regular Expressions (Regex) to parse metadata from filenames. Our standardized convention is:
+```[StudyCode]_[SubjectID]_[Timepoint]_[Leg]_Merged.lif```
+
+* **Standard Regex Pattern**: ```([0-9]+)_([A-Za-z]+)_([0-9]+)_([A-Za-z0-9]+)_([A-Za-z]+)_Merged```
+
+* **Example**: ```23_Wu_01_D14_L_Merged.lif``` (Study 23 Wu, Subject 01, Day 14, Left Leg).
+
+**Adaptation**: If your naming convention differs, you must adjust the Regex pattern in the ```.ijm``` file (lines responsible for file parsing) to match your structure.
+
+### **Automated Processing Steps**
+
+The macro performs the following operations automatically:
+
+1. **Raw TIF Saving**: Extracts and saves the raw z-stack. Used downstream to identify the 3D Z-position of nuclei.
+
+2. **STD Z-Projection (STDIP)**:
+* Applies rolling ball background subtraction (radius = 30 px).
+* Collapses z-stack into a 2D Standard Deviation Intensity Projection (STDIP).
+* Applies median filter and Otsu thresholding to create a binary mask of nuclei.
+
+3. **Skeleton Generation (Skel)**:
+* Creates a fiber mask by blurring and thresholding the projection.
+* Isolates large objects (>70,000 px²) to remove artifacts.
+* Skeletonizes the mask to represent fiber orientation and length.
+
+
+# **Part II: Analysis with Python**
+
+Once the images are processed (or if using the provided ```example_macro_output``` data, accessible via Dryad), use the Python pipeline to quantify morphology and organization.
+
+
+### 1. **Create and activate a Conda environment**
 Ensure you have Python 3.10+ installed. It is recommended to use a virtual environment to manage dependencies.
 ```bash
 conda create --name sfpipeline python=3.10
 conda activate sfpipeline
 ```
 
-### **2. Install dependencies**
+### 2. **Install dependencies**
 
 **Option A: Core Analysis (Lightweight)** If you only need to run the main script.
 ```bash
@@ -77,10 +127,11 @@ python -m pip install numpy pandas scikit-image scikit-learn scipy openpyxl Pill
 ```
 
 
-### **3. Prepare your data directory**
+### 3. **Prepare your data directory**
 
-Your macro output should follow:
+If you ran **Part I**, your output folder is already structured correctly. If you are testing **Part II only**, use the provided ```example_macro_ouput```.
 
+The required structure is:
 ```
 <base_dir>/
     20/
@@ -104,7 +155,7 @@ With appropriate naming convention, each fiber must have:
 
 ---
 
-### **4. Run the pipeline**
+### 4. **Run the pipeline**
 
 ```bash
 python SF_analysis_pipeline.py "D:\MacroOutput" --imaris_master "C:\path\to\Imaris.xlsx" \
@@ -119,9 +170,7 @@ python SF_analysis_pipeline.py "D:\MacroOutput" --imaris_master "C:\path\to\Imar
     --fiber_width_max_radius_um 100
 ```
 
----
-
-# **Major Processing Steps**
+### **Automated Processing Steps**
 
 1. Load masks, skeletons, and z-stacks
 2. Segment & filter nuclei (area + Z-consistency)
@@ -161,10 +210,10 @@ Full descriptions appear in [**docs/parameter_guide.md**](./docs/parameter_guide
 
 ## **Per-Fiber (`*_output/`)**
 
-* `nuclei_results.csv` — morphometrics, Z-metrics, NN3/NN5, orientation, DBSCAN labels
-* `excluded_nuclei.csv` — nuclei removed by filters
-* `fiber_width_profile.csv` — diameter along the fiber
-* `overlay.png` — quality control visualization
+* `nuclei_results.csv` — Morphometrics, Z-metrics, NN3/NN5, Orientation, DBSCAN labels
+* `excluded_nuclei.csv` — Nuclei removed by filters
+* `fiber_width_profile.csv` — Diameter along the fiber
+* `overlay.png` — Quality control visualization
 
 ## **Per-Leg Biopsy Summary**
 
