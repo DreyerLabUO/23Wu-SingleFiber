@@ -52,7 +52,7 @@ This step processes raw ```.lif``` (Leica) project files into the standardized d
 
 ### A. **Setup and Execution**
 
-1. **Download Fiji/ImageJ** and enable the Bio-Formats update site.
+1. **Download [Fiji/ImageJ](https://fiji.sc/)** and enable the Bio-Formats update site.
 
 2. **Import the Macro**: Launch Fiji and open the ```23_Wu_SF_Analysis.ijm``` file from this repository.
 
