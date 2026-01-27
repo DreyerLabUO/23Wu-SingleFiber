@@ -10,7 +10,7 @@ The workflow consists of **two main parts**:
 
 2. **Part II**: Quantitative analysis using a Python Pipeline.
 
-***Note**: Sample data is provided for testing either stage independently. Users wishing to complete a full analysis should run Part I first to generate the necessary inputs for Part II.*
+***Note**: Sample data is provided for testing either stage independently. Users wishing to complete a full analysis should run Part I first to generate the necessary inputs for Part II. **Sample data is hosted on the [**Dryad**](https://doi.org/10.5061/dryad.ht76hdrwn) data repository for public access at [doi.org/10.5061/dryad.ht76hdrwn](https://doi.org/10.5061/dryad.ht76hdrwn).***
 
 ---
 
@@ -38,9 +38,6 @@ The workflow consists of **two main parts**:
 ├── docs/
 │     ├── troubleshooting.md
 │     └── parameter_guide.md
-├── examples/
-│     ├── example_inputs/           # Example inputs, hosted on Dryad
-│     └── example_results/
 ├── visualizations/                 # Manuscript figures 8-10
 └── LICENSE
 ```
