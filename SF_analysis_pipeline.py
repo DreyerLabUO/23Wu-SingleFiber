@@ -743,11 +743,21 @@ def process_fiber(meta_key: Tuple[str, str, str, str],
     nuc_df = nuc_df.merge(z_df, on='Label', how='left')
 
     # --- FILTERING LOGIC ---
-    # 1. Z-Consistency Flag: Exclude if vertical spread (std dev) is too high
-    nuc_df['IncludedByZ'] = nuc_df['Z_Std_Index'] <= params.z_std_threshold
+    # 1. Z-Consistency Flag: Exclude if vertical spread (std dev) is too high.
+    # This prevents the exclusion of vertical nuclei on the fiber edges.
+    # 500 px (~55 um^2 at 0.3291532 um/px) captures the cross-section of a vertical myonucleus.
+    vertical_area_limit = 500 
+    
+    # Define a per-nucleus threshold based on XY area
+    dynamic_z_thresh = np.where(
+        nuc_df['Area_px'] < vertical_area_limit, 
+        params.z_std_threshold * 2.0, # Lenient for vertical/edge nuclei
+        params.z_std_threshold        # Standard for planar/top nuclei
+    )
+    
+    nuc_df['IncludedByZ'] = nuc_df['Z_Std_Index'] <= dynamic_z_thresh
     
     # 2. Combined Flag: Must pass both Area check and Z check
-    # Note: 'IncludedByArea' was computed in measure_nuclei_from_binary
     nuc_df['Included'] = nuc_df['IncludedByArea'] & nuc_df['IncludedByZ']
     # -----------------------
 
