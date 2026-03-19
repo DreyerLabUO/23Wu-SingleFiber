@@ -40,10 +40,14 @@ from scipy.spatial import distance
 
 # ----------------------------- Filename parsing ------------------------------
 FILENAME_REGEX = re.compile(
-    r'(?:.*_)?23_Wu_(?P<Subject>\d+)_'           # Subject numeric
-    r'(?P<Day>[A-Za-z0-9]+)_'                    # Timepoint token
-    r'(?P<Side>[LR])_?(?P<Leg>\d+)?\.lif'        # Side L/R, optional leg code
-    r'(?:\s*[-_]\s*)+Fiber(?P<Fiber>\d+-\d+)_.*\.(?:tif|tiff)$',
+    r'(?:.*_)?23_Wu_'                # Prefix
+    r'(?P<Subject>\d+)_'             # Subject
+    r'(?P<Day>[A-Za-z0-9]+)_'        # Timepoint
+    r'(?P<Leg>[LR])'                 # Leg
+    r'(?:_\d+)?'                     # Optional session
+    r'.*?'                           # Non-greedy match
+    r'Fiber(?P<Fiber>\d+[-_]\d+)'    # Allow Dash OR Underscore
+    r'.*\.(?:tif|tiff)$',            # Extension
     re.IGNORECASE
 )
 
@@ -97,7 +101,7 @@ def _parse_fiber_num_and_type(fiber_code: str) -> Tuple[Optional[int], Optional[
     """
     Parse codes like '2-1' into (fiber_num=2, fiber_type=1).
     """
-    m = re.match(r'^\s*(\d+)-(\d+)\s*$', str(fiber_code))
+    m = re.match(r'^\s*(\d+)[-_](\d+)\s*$', str(fiber_code))
     if not m:
         return None, None
     return int(m.group(1)), int(m.group(2))
@@ -526,7 +530,7 @@ def parse_file_metadata(path: str) -> Optional[Tuple[str, str, str, str]]:
     m = FILENAME_REGEX.match(name)
     if not m:
         return None
-    return (m.group('Subject'), m.group('Day'), m.group('Side'), m.group('Fiber'))
+    return (m.group('Subject'), m.group('Day'), m.group('Leg'), m.group('Fiber'))
 
 def _gather_files(folder: str, exts=('.tif', '.tiff')) -> List[str]:
     if not os.path.isdir(folder):
@@ -538,6 +542,10 @@ def _build_fiber_map(leg_dir: str) -> Dict[Tuple[str, str, str, str], Tuple[str,
     stdip = _gather_files(os.path.join(leg_dir, 'STDIP'))
     skel = _gather_files(os.path.join(leg_dir, 'Skel'))
     zstk = _gather_files(os.path.join(leg_dir, 'TIFs'))
+
+    # DEBUG: Check if files are found at all
+    print(f"--- {leg_dir} ---")
+    print(f"  Files found: STDIP: {len(sdtip)}, Skel: {len(skel)}, TIFs: {len(zstk)}")
 
     maps = {}
     for group, files in [('STDIP', stdip), ('Skel', skel), ('TIFs', zstk)]:
@@ -553,6 +561,15 @@ def _build_fiber_map(leg_dir: str) -> Dict[Tuple[str, str, str, str], Tuple[str,
         s_list = maps.get(('STDIP', meta), [])
         k_list = maps.get(('Skel', meta), [])
         z_list = maps.get(('TIFs', meta), [])
+
+        # DEBUG: Check for missing parts of the triplet
+        if not (s_list and k_list and z_list):
+            print(f"  [!] Incomplete triplet for Fiber {meta[3]}:")
+            print(f"      - STDIP: {'FOUND' if s_list else 'MISSING'}")
+            print(f"      - Skel:  {'FOUND' if k_list else 'MISSING'}")
+            print(f"      - TIFs:  {'FOUND' if z_list else 'MISSING'}")
+            continue
+
         s_choice = s_list[0] if s_list else None
         k_choice = k_list[0] if k_list else None
         z_choice = z_list[0] if z_list else None
@@ -593,7 +610,7 @@ def summarize_fiber(nuc_df: pd.DataFrame,
     summary = {}
     summary['Subject'] = nuc_df['Subject'].iloc[0]
     summary['Timepoint'] = nuc_df['Timepoint'].iloc[0]
-    summary['Side'] = nuc_df['Side'].iloc[0]
+    summary['Leg'] = nuc_df['Leg'].iloc[0]
     summary['Fiber'] = nuc_df['Fiber'].iloc[0]
     summary['FiberType'] = nuc_df['FiberType'].iloc[0]
 
@@ -786,7 +803,7 @@ def process_fiber(meta_key: Tuple[str, str, str, str],
     # Metadata
     nuc_df.insert(0, 'Subject', subject)
     nuc_df.insert(1, 'Timepoint', day)
-    nuc_df.insert(2, 'Side', side)
+    nuc_df.insert(2, 'Leg', side)
     nuc_df.insert(3, 'Fiber', fiber_col_value)
     nuc_df.insert(4, 'FiberType', fiber_type_col_value)
 
@@ -817,7 +834,7 @@ def process_fiber(meta_key: Tuple[str, str, str, str],
     if not width_df.empty:
         width_df.insert(0, 'Subject', subject)
         width_df.insert(1, 'Timepoint', day)
-        width_df.insert(2, 'Side', side)
+        width_df.insert(2, 'Leg', side)
         width_df.insert(3, 'Fiber', fiber_col_value)
         width_df.insert(4, 'FiberType', fiber_type_col_value)
         width_csv = os.path.join(out_dir, f"{base}_fiber_width_profile.csv")
@@ -841,7 +858,7 @@ def load_imaris_master(master_path: str) -> pd.DataFrame:
     df = df.rename(columns={
         'Subject': 'Subject',
         'Timepoint': 'Timepoint',
-        'Leg': 'Side',  # Map Imaris 'Leg' to pipeline 'Side' (R/L)
+        'Leg': 'Leg',  # Map Imaris 'Leg' to pipeline 'Leg' (R/L)
         'Fiber#': 'Fiber',
         'FiberType': 'FiberType',
         'Imaris Myonuclei': 'Imaris Myonuclei',
@@ -858,7 +875,7 @@ def find_imaris_row(imaris_df: pd.DataFrame,
                     fiber: Optional[int], fibertype: Optional[int]) -> Optional[pd.Series]:
     q = (imaris_df['Subject'].astype(str) == str(subject)) & \
         (imaris_df['Timepoint'].astype(str) == str(timepoint)) & \
-        (imaris_df['Side'].astype(str) == str(side))
+        (imaris_df['Leg'].astype(str) == str(side))
     if fiber is not None:
         q = q & (imaris_df['Fiber'] == fiber)
     if fibertype is not None and 'FiberType' in imaris_df.columns:
@@ -910,8 +927,15 @@ def batch_subject(base_dir: str, master_path: str, params: Params):
 
                 for meta_key, (stdip, skel, zstk) in fiber_map.items():
                     m_subject, m_day, m_side, m_fiber_code = meta_key
-                    if m_subject != subject or m_day != timepoint or m_side != leg:
-                        warnings.warn(f"Metadata mismatch: parsed {meta_key} but folder is {subject}/{timepoint}/{leg}.")
+                    
+                    # DEBUG: Print exact values being compared
+                    # Folder variables: subject, timepoint, leg
+                    # Metadata variables: m_subject, m_day, m_side
+                    if int(m_subject) != int(subject) or m_day != timepoint or m_side != leg:
+                        print(f"  [!] Comparison Mismatch for {m_fiber_code}:")
+                        print(f"      Folder: Subj={subject}, Day={timepoint}, Leg={leg}")
+                        print(f"      File:   Subj={m_subject}, Day={m_day}, Leg={m_side}")
+                        continue
 
                     fiber_num, fiber_type_num = _parse_fiber_num_and_type(m_fiber_code)
                     fiber_tag = f"{m_subject}_{m_day}_{m_side}_Fiber{m_fiber_code}"
@@ -947,7 +971,7 @@ def batch_subject(base_dir: str, master_path: str, params: Params):
 
                     # Order columns per your schema
                     desired_cols = [
-                        'Subject','Timepoint','Side','Fiber','FiberType',
+                        'Subject','Timepoint','Leg','Fiber','FiberType',
                         'ImarisMyonuclei','ImarisFiberLength','ImarisMyonuclei/mm',
                         'PythonMyonuclei','Excluded_Total','Excluded_By_Area','Excluded_By_Z',
                         'MeanDiameter','MinDiameter','MaxDiameter','DiameterSD',
@@ -967,7 +991,7 @@ def batch_subject(base_dir: str, master_path: str, params: Params):
                     ]
                     # Filter for columns that actually exist
                     biopsy_df = biopsy_df[[c for c in desired_cols if c in biopsy_df.columns]]
-                    excl_df = excl_df[[c for c in desired_cols if c in excl_df.columns] + ['ExcludedReason']]
+                    excl_df = excl_df[[c for c in (desired_cols + ['ExcludedReason']) if c in excl_df.columns]]
 
                     out_biopsy = os.path.join(leg_dir, f"{subject}_{timepoint}_{leg}_biopsy_summary.csv")
                     biopsy_df.to_csv(out_biopsy, index=False)
@@ -987,7 +1011,7 @@ def batch_subject(base_dir: str, master_path: str, params: Params):
                     all_tp = pd.concat(df_list, ignore_index=True) if df_list else pd.DataFrame()
 
                     base_cols = [
-                        'Subject','Timepoint','Side','Fiber','FiberType',
+                        'Subject','Timepoint','Leg','Fiber','FiberType',
                         'Label','Centroid_X','Centroid_Y','Centroid_X_um','Centroid_Y_um',
                         'Area_px','Area_um2','Perimeter_px','Perimeter_um',
                         'MajorAxis_px','MinorAxis_px','MajorAxis_um','MinorAxis_um',
