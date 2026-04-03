@@ -27,6 +27,7 @@ import re
 import warnings
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
+import time
 
 import numpy as np
 import pandas as pd
@@ -545,7 +546,7 @@ def _build_fiber_map(leg_dir: str) -> Dict[Tuple[str, str, str, str], Tuple[str,
 
     # DEBUG: Check if files are found at all
     print(f"--- {leg_dir} ---")
-    print(f"  Files found: STDIP: {len(sdtip)}, Skel: {len(skel)}, TIFs: {len(zstk)}")
+    print(f"  Files found: STDIP: {len(stdip)}, Skel: {len(skel)}, TIFs: {len(zstk)}")
 
     maps = {}
     for group, files in [('STDIP', stdip), ('Skel', skel), ('TIFs', zstk)]:
@@ -887,14 +888,16 @@ def find_imaris_row(imaris_df: pd.DataFrame,
 
 # ----------------------------- Batch orchestration ---------------------------
 def batch_subject(base_dir: str, master_path: str, params: Params):
+    
+    # Load Imaris master once per batch
+    imaris_df = load_imaris_master(master_path)
+
     # Process each subject directory
     for subject in sorted(os.listdir(base_dir)):
+        t_subj_start = time.perf_counter()  # Subject time start
         subj_dir = os.path.join(base_dir, subject)
         if not os.path.isdir(subj_dir):
             continue
-
-        # Load Imaris master once per subject
-        imaris_df = load_imaris_master(master_path)
 
         timepoint_to_rows: Dict[str, List[pd.DataFrame]] = {}
 
@@ -904,6 +907,7 @@ def batch_subject(base_dir: str, master_path: str, params: Params):
                 continue
 
             for leg in sorted(os.listdir(tp_dir)):
+                t_leg_start = time.perf_counter()   # Biopsy time start
                 leg_dir = os.path.join(tp_dir, leg)
                 if not os.path.isdir(leg_dir):
                     continue
@@ -926,6 +930,7 @@ def batch_subject(base_dir: str, master_path: str, params: Params):
                 excluded_fibers: List[Dict] = []
 
                 for meta_key, (stdip, skel, zstk) in fiber_map.items():
+                    t_fib_start = time.perf_counter() # Fiber time start
                     m_subject, m_day, m_side, m_fiber_code = meta_key
                     
                     # DEBUG: Print exact values being compared
@@ -961,6 +966,9 @@ def batch_subject(base_dir: str, master_path: str, params: Params):
                         else:
                             biopsy_summaries.append(summary_row)
 
+                        # --- FIBER END ---
+                        print(f"    Processed fiber {m_fiber_code} in {time.perf_counter() - t_fib_start:.2f}s")
+
                     except Exception as e:
                         warnings.warn(f"    Failed {fiber_tag}: {e}")
 
@@ -991,7 +999,7 @@ def batch_subject(base_dir: str, master_path: str, params: Params):
                     ]
                     # Filter for columns that actually exist
                     biopsy_df = biopsy_df[[c for c in desired_cols if c in biopsy_df.columns]]
-                    excl_df = excl_df[[c for c in (desired_cols + ['ExcludedReason']) if c in excl_df.columns]]
+                    excl_df = excl_df[[c for c in (desired_cols + ['ExcludedReason'])  if c in excl_df.columns]]
 
                     out_biopsy = os.path.join(leg_dir, f"{subject}_{timepoint}_{leg}_biopsy_summary.csv")
                     biopsy_df.to_csv(out_biopsy, index=False)
@@ -999,7 +1007,11 @@ def batch_subject(base_dir: str, master_path: str, params: Params):
                     out_excl = os.path.join(leg_dir, f"{subject}_{timepoint}_{leg}_excluded_fibers.csv")
                     excl_df.to_csv(out_excl, index=False)
 
+
+                    # --- BIOPSY END ---
+                    print(f"Finished biopsy {leg} in {time.perf_counter() - t_leg_start:.2f}s")
                     print(f"  Biopsy summary written: {out_biopsy}")
+                    
                     if not excl_df.empty:
                         print(f"  Excluded fibers written: {out_excl}")
 
@@ -1024,6 +1036,7 @@ def batch_subject(base_dir: str, master_path: str, params: Params):
                     out_df = all_tp[col_order] if col_order else all_tp
                     out_df.to_excel(writer, sheet_name=str(tp), index=False)
 
+            print(f"\n>>>> Completed subject {subject} in {time.perf_counter() - t_subj_start:.2f}s <<<<\n")
             print(f"Subject workbook written: {xlsx_path}")
         else:
             print(f"No results aggregated for subject {subject}.")
