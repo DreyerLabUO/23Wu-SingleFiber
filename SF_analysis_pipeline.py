@@ -37,7 +37,10 @@ from sklearn.cluster import DBSCAN
 from PIL import Image, ImageDraw, ImageFont
 from scipy.ndimage import distance_transform_edt
 from skimage.graph import route_through_array
+from scipy.signal import savgol_filter
+from scipy.spatial import KDTree
 from scipy.spatial import distance
+from PIL import Image, ImageDraw, ImageFont
 
 # ----------------------------- Filename parsing ------------------------------
 FILENAME_REGEX = re.compile(
@@ -359,138 +362,209 @@ def compute_neighbor_features(nuc_df: pd.DataFrame,
 
     return out
 
-def compute_fiber_width_profile(nuc_df: pd.DataFrame,
-                                skel_img: np.ndarray,
-                                params: Params) -> pd.DataFrame:
-    """Measure fiber diameter at regular intervals (e.g., every 100 µm) along the skeleton."""
-    if nuc_df.empty or 'Centroid_Y' not in nuc_df.columns or 'Centroid_X' not in nuc_df.columns:
+def order_skeleton(skel: np.ndarray):
+    """Orders skeleton pixels from one end to the other for path analysis."""
+    pixels = np.argwhere(skel > 0)
+    if len(pixels) < 2: return pixels
+    
+    # Simple nearest-neighbor ordering
+    ordered = [pixels[0]]
+    pixels = pixels[1:].tolist()
+    while pixels:
+        last = ordered[-1]
+        # Find closest remaining pixel
+        dists = np.sum((np.array(pixels) - last)**2, axis=1)
+        idx = np.argmin(dists)
+        ordered.append(pixels.pop(idx))
+    return np.array(ordered)
+
+
+def calculate_spatial_path(skel_coords: np.ndarray, smoothing_window: int = 15):
+    """Corrected: Now generates a true 90-degree normal vector."""
+    y, x = skel_coords[:, 0], skel_coords[:, 1]
+    
+    if len(y) < smoothing_window:
+        smoothing_window = len(y) if len(y) % 2 != 0 else len(y) - 1
+    
+    # Savitzky-Golay for high-quality smoothing
+    sy = savgol_filter(y, max(5, smoothing_window), 3)
+    sx = savgol_filter(x, max(5, smoothing_window), 3)
+
+
+    dy, dx = np.diff(sy), np.diff(sx)
+    steps = np.sqrt(dy**2 + dx**2)
+    arc_lengths = np.concatenate(([0], np.cumsum(steps)))
+    
+    # Tangents (ty, tx)
+    ty = np.gradient(sy, arc_lengths)
+    tx = np.gradient(sx, arc_lengths)
+    mags = np.sqrt(ty**2 + tx**2)
+    mags[mags == 0] = 1.0
+    
+    # True Perpendicular Normal (-ty, tx) or (ty, -tx)
+    normals = np.vstack((-ty/mags, tx/mags)).T 
+    return arc_lengths, sx, sy, normals
+
+
+def find_outermost_nuclei_along_line(skel_pt, norm_vec, nuclei_coords, limit_um, px_um):
+    """Identifies the furthest nuclei on each side of the skeleton within the limit."""
+    limit_px = limit_um / px_um
+    rel_vecs = nuclei_coords - skel_pt
+    
+    # Project nuclei onto normal vector
+    projections = np.dot(rel_vecs, norm_vec)
+    
+    # Distance from nucleus to the normal line
+    perp_dists = np.sqrt(np.sum(rel_vecs**2, axis=1) - projections**2)
+    
+    # Filter: nuclei must be within 100um of the line and within the search limit
+    mask = (perp_dists <= (100 / px_um)) & (np.abs(projections) <= limit_px)
+    
+    valid_projs = projections[mask]
+    pos = valid_projs[valid_projs > 0]
+    neg = valid_projs[valid_projs < 0]
+    
+    if len(pos) > 0 and len(neg) > 0:
+        return np.max(pos), np.min(neg)
+    return None, None
+
+
+
+
+def compute_fiber_width_profile(nuc_df: pd.DataFrame, skel: np.ndarray, mask: np.ndarray, params: Params):
+    """
+    Optimized: 
+    1. Collects all unique measurements first.
+    2. Uses a 'last_idx' break to prevent terminal point duplicates.
+    3. Cleans and re-indexes the final DataFrame once at the end.
+    """
+    if nuc_df.empty or np.sum(skel) < 10:
         return pd.DataFrame()
 
-    centroids = nuc_df[['Centroid_Y', 'Centroid_X']].to_numpy().astype(float)
-    valid = np.isfinite(centroids).all(axis=1)
-    centroids = centroids[valid]
-    if centroids.size == 0:
+
+    # Step 1: Search Limit (Using your 110um preference)
+    avg_radius_um = 50
+    dynamic_limit_um = (avg_radius_um * 2) + 10
+
+
+    # Step 2: Sample along the skeleton
+    ordered_pixels = order_skeleton(skel)
+    arc_lengths, sx, sy, normals = calculate_spatial_path(ordered_pixels)
+    
+    step_px = params.fiber_width_step_um / params.pixel_size_xy_um
+    target_arcs = np.arange(20/params.pixel_size_xy_um, np.max(arc_lengths) - 20/params.pixel_size_xy_um, step_px)
+    
+    nuclei_coords = nuc_df[['Centroid_X', 'Centroid_Y']].to_numpy() 
+    width_records = []
+    last_idx = -1 # Safety check for the end of the skeleton
+
+
+    for arc in target_arcs:
+        idx = np.abs(arc_lengths - arc).argmin()
+        
+        # SAFETY: If we hit the same terminal skeleton pixel, stop measuring
+        if idx == last_idx:
+            break
+        last_idx = idx
+
+
+        skel_pt = np.array([sx[idx], sy[idx]])
+        norm_vec = normals[idx]
+        
+        out_pos, out_neg = find_outermost_nuclei_along_line(
+            skel_pt, norm_vec, nuclei_coords, dynamic_limit_um, params.pixel_size_xy_um
+        )
+        
+        if out_pos is not None:
+            left_pt = skel_pt + out_pos * norm_vec
+            right_pt = skel_pt + out_neg * norm_vec
+            
+            width_records.append({
+                "Position_um": arc * params.pixel_size_xy_um,
+                "Diameter_um": (out_pos - out_neg) * params.pixel_size_xy_um,
+                "Skel_X": skel_pt[0], "Skel_Y": skel_pt[1],
+                "Left_X": left_pt[0], "Left_Y": left_pt[1],
+                "Right_X": right_pt[0], "Right_Y": right_pt[1],
+            })
+
+
+    # --- POST-PROCESSING ---
+    if not width_records:
         return pd.DataFrame()
 
-    skel = _to_bool(skel_img)
-    if skel.sum() == 0:
-        return pd.DataFrame()
 
-    endpoints = _find_skeleton_endpoints(skel)
-    if len(endpoints) < 2:
-        return pd.DataFrame()
+    # Convert to DataFrame once after the loop finishes
+    df = pd.DataFrame(width_records)
 
-    if len(endpoints) > 2:
-        endpoints_arr = np.array(endpoints)
-        dmat = distance.squareform(distance.pdist(endpoints_arr))
-        i0, i1 = np.unravel_index(np.argmax(dmat), dmat.shape)
-        start = tuple(endpoints_arr[i0])
-        end = tuple(endpoints_arr[i1])
-    else:
-        start, end = endpoints[0], endpoints[1]
 
-    dist_map = distance_transform_edt(~skel)
+    # Drop duplicate measurements (in case of skeleton loops/blobs)
+    df = df.drop_duplicates(subset=['Left_X', 'Left_Y', 'Right_X', 'Right_Y'], keep='first')
+
+
+    # Assign sequential IDs (0, 1, 2...) to the final cleaned list
+    df.insert(0, "Measurement_ID", range(len(df)))
+
+
+    return df
+            
+
+
+def save_diameter_overlay(stdip_mask: np.ndarray,
+                          skel_img: np.ndarray,
+                          width_df: pd.DataFrame,
+                          out_path: str):
+    """
+    Creates an overlay showing:
+    1. DAPI Binary Background (Gray)
+    2. Skeleton Path (Magenta)
+    3. Diameter Measurement Lines (Green)
+    4. Measurement Indices (Yellow)
+    """
+    if width_df.empty:
+        return
+
+
+    # 1. Convert DAPI binary mask to RGB background
+    bg = (stdip_mask.astype(np.uint8) * 255)
+    if bg.ndim != 2:
+        bg = bg.squeeze()
+    rgb = np.dstack([bg, bg, bg]).astype(np.uint8)
+    
+    # 2. Add the Skeleton in Magenta (Red + Blue)
+    # We use _to_bool to ensure we catch any non-zero skeleton pixels
+    skel_mask = skel_img > 0
+    rgb[skel_mask, 0] = 255  # Red channel
+    rgb[skel_mask, 1] = 0    # Green channel
+    rgb[skel_mask, 2] = 255  # Blue channel
+
+
+    img = Image.fromarray(rgb)
+    draw = ImageDraw.Draw(img)
+    
     try:
-        path, _ = route_through_array(dist_map, start, end, fully_connected=True)
+        font = ImageFont.truetype("arial.ttf", size=14)
     except Exception:
-        return pd.DataFrame()
+        font = ImageFont.load_default()
 
-    path = np.asarray(path, dtype=float)  # (N, 2) rows = (y, x)
-    if path.ndim != 2 or path.shape[0] < 2:
-        return pd.DataFrame()
 
-    diffs = np.diff(path, axis=0)
-    step_lengths_px = np.linalg.norm(diffs, axis=1)
-    if step_lengths_px.size == 0:
-        return pd.DataFrame()
+    # 3. Draw Diameter Lines and Indices
+    for i, row in width_df.iterrows():
+        ly, lx = row['Left_Y'], row['Left_X']
+        ry, rx = row['Right_Y'], row['Right_X']
+        
+        # Draw the measurement line in Green
+        draw.line([(lx, ly), (rx, ry)], fill=(0, 255, 0), width=2)
+        
+        # Calculate midpoint for the label
+        mx, my = (lx + rx) / 2, (ly + ry) / 2
+        
+        # Draw the index number in Yellow
+        draw.text((mx + 5, my + 5), str(i), fill=(255, 255, 0), 
+                  stroke_width=1, stroke_fill=(0, 0, 0), font=font)
 
-    cumdist_px = np.concatenate([[0.0], np.cumsum(step_lengths_px)])
-    px_to_um = float(params.pixel_size_xy_um)
-    cumdist_um = cumdist_px * px_to_um
-    total_length_um = cumdist_um[-1]
 
-    step_um = float(getattr(params, "fiber_width_step_um", 100.0))
-    if step_um <= 0:
-        step_um = 100.0
+    img.save(out_path)
 
-    target_positions_um = np.arange(0.0, total_length_um + step_um * 0.5, step_um)
-    if target_positions_um.size == 0:
-        return pd.DataFrame()
-
-    sample_indices = np.searchsorted(cumdist_um, target_positions_um)
-    sample_indices = np.clip(sample_indices, 0, len(path) - 1)
-    sample_indices = np.unique(sample_indices)
-
-    max_radius_um = float(getattr(params, "fiber_width_max_radius_um", 100.0))
-    max_radius_px = max(1, int(round(max_radius_um / px_to_um)))
-
-    results = []
-
-    for pos_idx in sample_indices:
-        center = path[pos_idx]  # (y, x)
-        y, x = center.astype(float)
-
-        k = 5
-        i0 = max(0, pos_idx - k)
-        i1 = min(len(path) - 1, pos_idx + k)
-        prev_pt = path[i0].astype(float)
-        next_pt = path[i1].astype(float)
-
-        dy, dx = next_pt[0] - prev_pt[0], next_pt[1] - prev_pt[1]
-        norm = np.hypot(dy, dx)
-        if norm == 0:
-            continue
-
-        dir_vec = np.array([dy, dx]) / norm
-        perp_vec = np.array([-dx, dy]) / norm  # +90° perpendicular
-
-        disp = centroids - np.array([[y, x]])  # (N, 2), (Δy, Δx)
-        dists_px = np.linalg.norm(disp, axis=1)
-        within_radius = dists_px <= max_radius_px
-        if not within_radius.any():
-            continue
-
-        disp_local = disp[within_radius]
-        along = disp_local @ dir_vec
-        perp_proj = disp_local @ perp_vec
-
-        local_mask = np.abs(along) <= max_radius_px
-        if not local_mask.any():
-            continue
-
-        perp_proj = perp_proj[local_mask]
-        disp_local = disp_local[local_mask]
-
-        left_mask = perp_proj < 0
-        right_mask = perp_proj > 0
-        if not (left_mask.any() and right_mask.any()):
-            continue
-
-        left_indices = np.where(left_mask)[0]
-        right_indices = np.where(right_mask)[0]
-
-        left_idx_local = left_indices[np.argmin(perp_proj[left_indices])]    # most negative
-        right_idx_local = right_indices[np.argmax(perp_proj[right_indices])]  # most positive
-
-        left_centroid = np.array([y, x]) + disp_local[left_idx_local]
-        right_centroid = np.array([y, x]) + disp_local[right_idx_local]
-
-        diameter_px = np.linalg.norm(left_centroid - right_centroid)
-        diameter_um = diameter_px * px_to_um
-        position_um = cumdist_um[pos_idx]
-
-        results.append({
-            "Position_um": position_um,
-            "Diameter_um": diameter_um,
-            "Skel_Y": y, "Skel_X": x,
-            "Left_Y": left_centroid[0], "Left_X": left_centroid[1],
-            "Right_Y": right_centroid[0], "Right_X": right_centroid[1],
-        })
-
-    if not results:
-        return pd.DataFrame()
-
-    return pd.DataFrame(results)
 
 def save_labeled_overlay(stdip_mask: np.ndarray,
                          lab_mask: np.ndarray,
@@ -831,7 +905,7 @@ def process_fiber(meta_key: Tuple[str, str, str, str],
     excluded_df.to_csv(out_csv_ex, index=False)
 
     # Fiber-width profile
-    width_df = compute_fiber_width_profile(included_df, skel, params)
+    width_df = compute_fiber_width_profile(nuc_df, skel, mask, params)
     if not width_df.empty:
         width_df.insert(0, 'Subject', subject)
         width_df.insert(1, 'Timepoint', day)
@@ -841,8 +915,12 @@ def process_fiber(meta_key: Tuple[str, str, str, str],
         width_csv = os.path.join(out_dir, f"{base}_fiber_width_profile.csv")
         width_df.to_csv(width_csv, index=False)
 
-    # Overlay (Draw included only, or all? Usually draw all but maybe different colors? 
-    # Current function draws all labels in red/white. Keeping as is.)
+        # Diameter overlay
+        base = f"{meta_key[0]}_{meta_key[1]}_{meta_key[2]}_Fiber{meta_key[3]}"
+        diameter_overlay_path = os.path.join(out_dir, f"{base}_diameter_verification.png")
+        save_diameter_overlay(mask, skel, width_df, diameter_overlay_path)
+
+    # Draw nuclei overlay 
     overlay_path = os.path.join(out_dir, f"{base}_overlay.png")
     save_labeled_overlay(mask, lab, nuc_df, overlay_path)
 
