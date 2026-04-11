@@ -21,6 +21,8 @@ Dependencies: numpy, pandas, scikit-image, scikit-learn, scipy, openpyxl, pillow
 # Suggested CLI input:
 # python SF_analysis_pipeline.py "J:\MacroOutput Test" --imaris_master "C:\Users\Dreyer Lab\Desktop\23_Wu_SF_ImarisResults.xlsx" --min_area_px 200 --max_area_px 0 --pixel_size_xy_um 0.3291532 --z_scale_um_per_index 2.7 --z_std_threshold 2.0 --dbscan_eps_um 20 --skeleton_radius_px 20
 
+# python c:\Users\madel\OneDrive\Desktop\SF_analysis_pipeline.py "D:\7_10_25_DiameterTest\Output" --imaris_master "D:\7_10_25_DiameterTest\23_Wu_SF_ImarisResults.xlsx" --min_area_px 200 --max_area_px 0 --pixel_size_xy_um 0.3291532 --z_scale_um_per_index 2.7 --z_std_threshold 2.0 --dbscan_eps_um 20 --skeleton_radius_px 20
+
 
 import os
 import re
@@ -417,8 +419,8 @@ def find_outermost_nuclei_along_line(skel_pt, norm_vec, nuclei_coords, limit_um,
     # Distance from nucleus to the normal line
     perp_dists = np.sqrt(np.sum(rel_vecs**2, axis=1) - projections**2)
     
-    # Filter: nuclei must be within 100um of the line and within the search limit
-    mask = (perp_dists <= (100 / px_um)) & (np.abs(projections) <= limit_px)
+    # Filter: nuclei must be within 50um of the line and within the search limit
+    mask = (perp_dists <= (50 / px_um)) & (np.abs(projections) <= limit_px)
     
     valid_projs = projections[mask]
     pos = valid_projs[valid_projs > 0]
@@ -427,8 +429,6 @@ def find_outermost_nuclei_along_line(skel_pt, norm_vec, nuclei_coords, limit_um,
     if len(pos) > 0 and len(neg) > 0:
         return np.max(pos), np.min(neg)
     return None, None
-
-
 
 
 def compute_fiber_width_profile(nuc_df: pd.DataFrame, skel: np.ndarray, mask: np.ndarray, params: Params):
@@ -440,11 +440,9 @@ def compute_fiber_width_profile(nuc_df: pd.DataFrame, skel: np.ndarray, mask: np
     """
     if nuc_df.empty or np.sum(skel) < 10:
         return pd.DataFrame()
-
-
-    # Step 1: Search Limit (Using your 110um preference)
-    avg_radius_um = 50
-    dynamic_limit_um = (avg_radius_um * 2) + 10
+    
+    # Step 1: Set dynamic limit (nuclei distance from skeleton)
+    dynamic_limit_um = 200
 
 
     # Step 2: Sample along the skeleton
