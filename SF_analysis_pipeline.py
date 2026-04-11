@@ -444,6 +444,18 @@ def compute_fiber_width_profile(nuc_df: pd.DataFrame, skel: np.ndarray, mask: np
     # Step 1: Set dynamic limit (nuclei distance from skeleton)
     dynamic_limit_um = 200
 
+    # # Step 1 (ALTERNATIVE): 95th percentile
+    # all_dists = compute_distance_to_skeleton(nuc_df, skel, params)
+    
+    # # The 95th percentile represents the 'outer shell' of the fiber
+    # valid_dists = all_dists.dropna()
+    # if valid_dists.empty:
+    #     return pd.DataFrame()
+        
+    # estimated_radius_um = np.percentile(valid_dists, 95)
+    # # Dynamic Limit = Diameter + 10um buffer
+    # dynamic_limit_um = (estimated_radius_um * 2) + 10.0
+
 
     # Step 2: Sample along the skeleton
     ordered_pixels = order_skeleton(skel)
